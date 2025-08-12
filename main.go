@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -58,14 +59,23 @@ func run(cmd *cobra.Command, args []string) {
 					fmt.Printf("Warning: Cell coordinate [%d,%d] is outside grid bounds (%dx%d). Unceremoniously skipping it.\n", x, y, width, height)
 					continue
 				}
-				grid.SetCell(x, y, true)
+				grid.SetCell(x, y, 1)
 			}
 		}
 	}
 
-	// Display the grid
-	grid.Display()
-
-	fmt.Printf("Grid %dx%d displayed! Press Enter to exit...\n", width, height)
-	fmt.Scanln() // Wait for user input
+	// Game loop - continuously evolve and display
+	fmt.Println("Conway's Game of Life - Press Ctrl+C to exit")
+	
+	for generation := 0; ; generation++ {
+		// Display current generation
+		grid.MakeItSo()
+		fmt.Printf("Generation: %d\n", generation)
+		
+		// Calculate next generation
+		grid = grid.BoldlyGo()
+		
+		// Small delay to make it watchable
+		time.Sleep(500 * time.Millisecond)
+	}
 }
