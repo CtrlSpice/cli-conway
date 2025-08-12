@@ -10,22 +10,26 @@ type Grid struct {
 	width         int
 	height        int
 	cells         [][]byte
-	neighborCache map[string]int
-	cacheValid    map[string]bool
+	buffer        [][]byte // Double buffer for next generation
+	neighborCache map[int]int
+	cacheValid    map[int]bool
 }
 
 // NewGrid creates a new grid with the specified dimensions
 func NewGrid(width, height int) *Grid {
 	cells := make([][]byte, height)
+	buffer := make([][]byte, height)
 	for i := range cells {
 		cells[i] = make([]byte, width)
+		buffer[i] = make([]byte, width)
 	}
 	return &Grid{
 		width:         width,
 		height:        height,
 		cells:         cells,
-		neighborCache: make(map[string]int),
-		cacheValid:    make(map[string]bool),
+		buffer:        buffer,
+		neighborCache: make(map[int]int),
+		cacheValid:    make(map[int]bool),
 	}
 }
 
@@ -56,8 +60,8 @@ func (grid *Grid) invalidateNeighborCache(x, y int) {
 }
 
 // getCacheKey generates a unique key for cache lookup
-func (grid *Grid) getCacheKey(x, y int) string {
-	return fmt.Sprintf("%d,%d", x, y)
+func (grid *Grid) getCacheKey(x, y int) int {
+	return y*grid.width + x
 }
 
 // GetCell returns the state of a cell at the specified position
@@ -116,19 +120,17 @@ func (grid *Grid) Randomize() {
 	}
 }
 
+// swapBuffers swaps the cells and buffer arrays
+func (grid *Grid) swapBuffers() {
+	grid.cells, grid.buffer = grid.buffer, grid.cells
+}
+
 // Boldly generates "The Next Generation" (Get it? Get it? I will show myself out) of grid
-func (grid *Grid) BoldlyGo() *Grid {
-	// Create a new grid for the next generation
-	nextGen := NewGrid(grid.width, grid.height)
-	
-	// Copy cache from the current generation for cells that won't change
-	nextGen.neighborCache = make(map[string]int)
-	nextGen.cacheValid = make(map[string]bool)
-	
+func (grid *Grid) BoldlyGo() {
 	// Track which cells changed for cache optimization
-	changedCells := make(map[string]bool)
+	changedCells := make(map[int]bool)
 	
-	// Apply Conway's rules to each cell
+	// Apply Conway's rules to each cell, writing to buffer
 	for y := range grid.cells {
 		for x := range grid.cells[y] {
 			lifeformCount := grid.scanForLifeforms(x, y)
@@ -149,11 +151,21 @@ func (grid *Grid) BoldlyGo() *Grid {
 				}
 			}
 			
-			nextGen.cells[y][x] = newState
+			grid.buffer[y][x] = newState
 			if currentState != newState {
 				changedCells[grid.getCacheKey(x, y)] = true
 			}
 		}
+	}
+	
+	// Swap buffers so the new generation becomes current
+	grid.swapBuffers()
+	
+	// Update cache validity for changed regions
+	for key := range changedCells {
+		x := key % grid.width
+		y := key / grid.width
+		grid.invalidateNeighborCache(x, y)
 	}
 	
 	// Pre-populate cache for unchanged regions
@@ -179,15 +191,12 @@ func (grid *Grid) BoldlyGo() *Grid {
 				}
 			}
 			
-			// If no neighbors changed, we can reuse the cached neighbor count
+			// If no neighbors changed and cache was valid, keep it valid
 			if !hasChangedNeighbor && grid.cacheValid[key] {
-				nextGen.neighborCache[key] = grid.neighborCache[key]
-				nextGen.cacheValid[key] = true
+				// Cache remains valid, no need to update
 			}
 		}
 	}
-	
-	return nextGen
 }
 
 // scanForLifeforms counts the number of live neighbors for a given cell

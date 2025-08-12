@@ -73,7 +73,7 @@ func run(cmd *cobra.Command, args []string) {
 		fmt.Printf("Generation: %d\n", generation)
 		
 		// Calculate next generation
-		grid = grid.BoldlyGo()
+		grid.BoldlyGo()
 		
 		// Small delay to make it watchable
 		time.Sleep(500 * time.Millisecond)
