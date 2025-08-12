@@ -7,9 +7,11 @@ import (
 
 // Grid represents the game board
 type Grid struct {
-	width  int
-	height int
-	cells  [][]byte
+	width         int
+	height        int
+	cells         [][]byte
+	neighborCache map[string]int
+	cacheValid    map[string]bool
 }
 
 // NewGrid creates a new grid with the specified dimensions
@@ -19,17 +21,43 @@ func NewGrid(width, height int) *Grid {
 		cells[i] = make([]byte, width)
 	}
 	return &Grid{
-		width:  width,
-		height: height,
-		cells:  cells,
+		width:         width,
+		height:        height,
+		cells:         cells,
+		neighborCache: make(map[string]int),
+		cacheValid:    make(map[string]bool),
 	}
 }
 
 // SetCell sets a cell at the specified position
 func (grid *Grid) SetCell(x, y int, value byte) {
 	if x >= 0 && x < grid.width && y >= 0 && y < grid.height {
+		oldValue := grid.cells[y][x]
 		grid.cells[y][x] = value
+		
+		if oldValue != value {
+			grid.invalidateNeighborCache(x, y)
+		}
 	}
+}
+
+// invalidateNeighborCache marks the cache as invalid for a cell and its neighbors
+func (grid *Grid) invalidateNeighborCache(x, y int) {
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			newX := x + dx
+			newY := y + dy
+			if newX >= 0 && newX < grid.width && newY >= 0 && newY < grid.height {
+				key := grid.getCacheKey(newX, newY)
+				grid.cacheValid[key] = false
+			}
+		}
+	}
+}
+
+// getCacheKey generates a unique key for cache lookup
+func (grid *Grid) getCacheKey(x, y int) string {
+	return fmt.Sprintf("%d,%d", x, y)
 }
 
 // GetCell returns the state of a cell at the specified position
@@ -93,26 +121,68 @@ func (grid *Grid) BoldlyGo() *Grid {
 	// Create a new grid for the next generation
 	nextGen := NewGrid(grid.width, grid.height)
 	
+	// Copy cache from the current generation for cells that won't change
+	nextGen.neighborCache = make(map[string]int)
+	nextGen.cacheValid = make(map[string]bool)
+	
+	// Track which cells changed for cache optimization
+	changedCells := make(map[string]bool)
+	
 	// Apply Conway's rules to each cell
 	for y := range grid.cells {
 		for x := range grid.cells[y] {
 			lifeformCount := grid.scanForLifeforms(x, y)
+			currentState := grid.cells[y][x]
+			newState := currentState
+			
 			// If the cell is alive
-			if grid.cells[y][x] == 1 {
+			if currentState == 1 {
 				// Kill it if it's lonely or overcrowded
 				if lifeformCount < 2 || lifeformCount > 3 {
-					nextGen.SetCell(x, y, 0)
-				} else {
-					nextGen.SetCell(x, y, 1)
+					newState = 0
 				}
 			// If the cell is dead
 			} else {
 				// Reproduce if there are exactly three lifeforms in the neighborhood
 				if lifeformCount == 3 {
-					nextGen.SetCell(x, y, 1)
-				} else {
-					nextGen.SetCell(x, y, 0)
+					newState = 1
 				}
+			}
+			
+			nextGen.cells[y][x] = newState
+			if currentState != newState {
+				changedCells[grid.getCacheKey(x, y)] = true
+			}
+		}
+	}
+	
+	// Pre-populate cache for unchanged regions
+	for y := 0; y < grid.height; y++ {
+		for x := 0; x < grid.width; x++ {
+			key := grid.getCacheKey(x, y)
+			hasChangedNeighbor := false
+			
+			// Check if any neighbor changed
+			for dy := -1; dy <= 1; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					if dx == 0 && dy == 0 {
+						continue
+					}
+					neighborKey := grid.getCacheKey(x+dx, y+dy)
+					if changedCells[neighborKey] {
+						hasChangedNeighbor = true
+						break
+					}
+				}
+				if hasChangedNeighbor {
+					break
+				}
+			}
+			
+			// If no neighbors changed, we can reuse the cached neighbor count
+			if !hasChangedNeighbor && grid.cacheValid[key] {
+				nextGen.neighborCache[key] = grid.neighborCache[key]
+				nextGen.cacheValid[key] = true
 			}
 		}
 	}
@@ -123,6 +193,12 @@ func (grid *Grid) BoldlyGo() *Grid {
 // scanForLifeforms counts the number of live neighbors for a given cell
 // Data loves scanning for lifeforms
 func (grid *Grid) scanForLifeforms(x, y int) int {
+	key := grid.getCacheKey(x, y)
+	
+	if valid, exists := grid.cacheValid[key]; exists && valid {
+		return grid.neighborCache[key]
+	}
+	
 	// Data loves scanning for lifeforms
 	lifeformCount := 0
 	
@@ -146,6 +222,9 @@ func (grid *Grid) scanForLifeforms(x, y int) int {
 		}
 	}
 
+	grid.neighborCache[key] = lifeformCount
+	grid.cacheValid[key] = true
+	
 	return lifeformCount
 }
 
